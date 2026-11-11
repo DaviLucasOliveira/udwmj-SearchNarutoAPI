@@ -1,0 +1,475 @@
+﻿@page "/"
+@using System.Text.Json
+@using System.Net.Http.Json
+@inject HttpClient Http
+@using Microsoft.AspNetCore.Components.Web
+
+<PageTitle>Search Naruto API</PageTitle>
+
+<div class="main-container">
+
+    <header class="topbar">
+        <div class="logo">
+            <span class="logo-icon">火</span>
+            <span>NARUTO</span>
+        </div>
+        <span class="topbar-label">SHINOBI DATABASE</span>
+    </header>
+
+    <section class="hero">
+        <span class="section-label">NINJA WORLD DATABASE</span>
+        <h1>SHINOBI <span>SEARCH</span></h1>
+        <p>Explore os personagens do universo Naruto.</p>
+    </section>
+
+    <section class="search-card">
+        <label for="nome">PESQUISAR PERSONAGEM</label>
+
+        <div class="search-box">
+            <input id="nome"
+                   @bind="nomeBusca"
+                   @bind:event="oninput"
+                   @onkeydown="TeclaEnter"
+                   placeholder="Digite o nome do personagem..." />
+
+            <button @onclick="Pesquisar" disabled="@carregando">
+                PESQUISAR
+            </button>
+        </div>
+
+        <div class="search-info">
+            <span>EXEMPLOS:</span>
+            <button class="example-btn" @onclick='() => BuscarExemplo("Naruto")'>NARUTO</button>
+            <button class="example-btn" @onclick='() => BuscarExemplo("Sasuke")'>SASUKE</button>
+            <button class="example-btn" @onclick='() => BuscarExemplo("Sakura")'>SAKURA</button>
+        </div>
+    </section>
+
+    @if (!string.IsNullOrEmpty(mensagem))
+    {
+        <div class="message">@mensagem</div>
+    }
+
+    @if (selecionado != null)
+    {
+        <section class="detail-card">
+
+            <button class="back-button" @onclick="Voltar">
+                ← VOLTAR PARA PERSONAGENS
+            </button>
+
+            <div class="detail-content">
+
+                <div class="detail-image">
+                    @if (!string.IsNullOrEmpty(selecionado.Imagem))
+                    {
+                        <img src="@selecionado.Imagem"
+                             alt="@selecionado.Nome" />
+                    }
+                    else
+                    {
+                        <span>IMAGEM INDISPONÍVEL</span>
+                    }
+                </div>
+
+                <div class="detail-info">
+
+                    <span class="section-label">PERFIL SHINOBI</span>
+
+                    <h2>@selecionado.Nome</h2>
+
+                    <div class="red-line"></div>
+
+                    <div class="info-item">
+                        <span>CLÃ / AFILIAÇÃO</span>
+                        <p>@selecionado.Cla</p>
+                    </div>
+
+                    <div class="info-item">
+                        <span>RANK NINJA</span>
+                        <p>@selecionado.Patente</p>
+                    </div>
+
+                    <div class="info-item">
+                        <span>JUTSUS</span>
+
+                        @if (selecionado.Jutsus.Count > 0)
+                        {
+                            <div class="jutsu-list">
+                                @foreach (var jutsu in selecionado.Jutsus)
+                                {
+                                    <span class="jutsu-tag">@jutsu</span>
+                                }
+                            </div>
+                        }
+                        else
+                        {
+                            <p>Informação não disponível.</p>
+                        }
+                    </div>
+
+                </div>
+            </div>
+        </section>
+    }
+    else
+    {
+        <section class="characters-section">
+
+            <div class="section-heading">
+                <div>
+                    <span class="section-label">DATABASE</span>
+                    <h2>PERSONAGENS</h2>
+                </div>
+
+                <span class="total">
+                    @totalPersonagens PERSONAGENS
+                </span>
+            </div>
+
+            @if (carregando)
+            {
+                <div class="loading">
+                    CONSULTANDO BANCO DE DADOS...
+                </div>
+            }
+            else if (personagens.Count > 0)
+            {
+                <div class="character-grid">
+
+                    @foreach (var personagem in personagens)
+                    {
+                        <div class="character-card"
+                             @onclick="() => Selecionar(personagem)">
+
+                            <div class="character-image">
+                                @if (!string.IsNullOrEmpty(personagem.Imagem))
+                                {
+                                    <img src="@personagem.Imagem"
+                                         alt="@personagem.Nome" />
+                                }
+                                else
+                                {
+                                    <span>SEM IMAGEM</span>
+                                }
+                            </div>
+
+                            <div class="character-name">
+                                <span>SHINOBI</span>
+                                <h3>@personagem.Nome</h3>
+                                <p>VER DETALHES →</p>
+                            </div>
+
+                        </div>
+                    }
+
+                </div>
+
+                <div class="pagination">
+                    <button @onclick="PaginaAnterior"
+                            disabled="@(pagina <= 1)">
+                        ← ANTERIOR
+                    </button>
+
+                    <span>PÁGINA @pagina</span>
+
+                    <button @onclick="ProximaPagina"
+                            disabled="@(personagens.Count == 0 || (totalPersonagens > 0 && pagina * limite >= totalPersonagens))">
+                        PRÓXIMA →
+                    </button>
+                </div>
+            }
+        </section>
+    }
+
+    <footer>
+        <span>SEARCH NARUTO API</span>
+        <span>POWERED BY DATTEBAYO API</span>
+    </footer>
+
+</div>
+
+@code {
+    private string nomeBusca = "";
+    private string mensagem = "";
+
+    private bool carregando = false;
+
+    private int pagina = 1;
+    private int limite = 12;
+    private int totalPersonagens = 0;
+
+    private List<Personagem> personagens = new();
+    private Personagem? selecionado;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CarregarPersonagens();
+    }
+
+    private async Task CarregarPersonagens()
+    {
+        carregando = true;
+        mensagem = "";
+
+        try
+        {
+            string url = $"characters?page={pagina}&limit={limite}";
+
+            if (!string.IsNullOrWhiteSpace(nomeBusca))
+            {
+                url += $"&name={Uri.EscapeDataString(nomeBusca.Trim())}";
+            }
+
+            var resposta = await Http.GetFromJsonAsync<JsonElement>(url);
+
+            JsonElement lista = resposta;
+
+            if (resposta.ValueKind == JsonValueKind.Object)
+            {
+                if (resposta.TryGetProperty("characters", out var dados))
+                {
+                    lista = dados;
+                }
+
+                if (resposta.TryGetProperty("total", out var total))
+                {
+                    totalPersonagens = total.GetInt32();
+                }
+                else
+                {
+                    totalPersonagens = 0;
+                }
+            }
+
+            personagens = new List<Personagem>();
+
+            if (lista.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in lista.EnumerateArray())
+                {
+                    personagens.Add(new Personagem
+                    {
+                        Dados = item.Clone()
+                    });
+                }
+            }
+
+            if (personagens.Count == 0)
+            {
+                mensagem = "Nenhum personagem encontrado.";
+            }
+        }
+        catch
+        {
+            mensagem = "Erro ao carregar personagens. Tente novamente.";
+            personagens.Clear();
+        }
+        finally
+        {
+            carregando = false;
+        }
+    }
+
+    private async Task Pesquisar()
+    {
+        pagina = 1;
+        selecionado = null;
+        await CarregarPersonagens();
+    }
+
+    private async Task BuscarExemplo(string nome)
+    {
+        nomeBusca = nome;
+        await Pesquisar();
+    }
+
+    private async Task TeclaEnter(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await Pesquisar();
+        }
+    }
+
+    private async Task Selecionar(Personagem personagem)
+    {
+        if (!personagem.Id.HasValue)
+        {
+            selecionado = personagem;
+            return;
+        }
+
+        carregando = true;
+        mensagem = "";
+
+        try
+        {
+            var resposta = await Http.GetFromJsonAsync<JsonElement>(
+                $"characters/{personagem.Id.Value}");
+
+            if (resposta.ValueKind == JsonValueKind.Object)
+            {
+                if (resposta.TryGetProperty("data", out var data))
+                {
+                    resposta = data;
+                }
+
+                selecionado = new Personagem
+                {
+                    Dados = resposta.Clone()
+                };
+            }
+            else
+            {
+                selecionado = personagem;
+            }
+        }
+        catch
+        {
+            selecionado = personagem;
+            mensagem = "Não foi possível atualizar os detalhes do personagem.";
+        }
+        finally
+        {
+            carregando = false;
+        }
+    }
+
+    private void Voltar()
+    {
+        selecionado = null;
+        mensagem = "";
+    }
+
+    private async Task ProximaPagina()
+    {
+        if (personagens.Count == 0)
+            return;
+
+        pagina++;
+        await CarregarPersonagens();
+    }
+
+    private async Task PaginaAnterior()
+    {
+        if (pagina > 1)
+        {
+            pagina--;
+            await CarregarPersonagens();
+        }
+    }
+
+    public class Personagem
+    {
+        public JsonElement Dados { get; set; }
+
+        public int? Id =>
+            Dados.TryGetProperty("id", out var id) &&
+            id.TryGetInt32(out var valor) ? valor : null;
+
+        public string Nome =>
+            LerCampo(Dados, "name");
+
+        public string Imagem
+        {
+            get
+            {
+                if (Dados.TryGetProperty("images", out var imagens) &&
+                    imagens.ValueKind == JsonValueKind.Array &&
+                    imagens.GetArrayLength() > 0)
+                {
+                    return imagens[0].GetString() ?? "";
+                }
+
+                return "";
+            }
+        }
+
+        public string Cla
+        {
+            get
+            {
+                var personal = BuscarPropriedade(
+                    Dados, "personal", "personalInfo");
+
+                return LerCampo(personal, "clan", "affiliation");
+            }
+        }
+
+        public string Patente
+        {
+            get
+            {
+                var rank = BuscarPropriedade(Dados, "rank");
+
+                return LerCampo(rank, "ninjaRank");
+            }
+        }
+
+        public List<string> Jutsus
+        {
+            get
+            {
+                var lista = new List<string>();
+
+                if (Dados.TryGetProperty("jutsu", out var jutsus) &&
+                    jutsus.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var item in jutsus.EnumerateArray())
+                    {
+                        if (item.ValueKind == JsonValueKind.String)
+                        {
+                            var valor = item.GetString();
+
+                            if (!string.IsNullOrWhiteSpace(valor))
+                                lista.Add(valor);
+                        }
+                    }
+                }
+
+                return lista;
+            }
+        }
+    }
+
+    private static JsonElement BuscarPropriedade(
+        JsonElement objeto, params string[] nomes)
+    {
+        if (objeto.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var nome in nomes)
+            {
+                if (objeto.TryGetProperty(nome, out var valor))
+                    return valor;
+            }
+        }
+
+        return default;
+    }
+
+    private static string LerCampo(
+        JsonElement objeto, params string[] nomes)
+    {
+        var valor = BuscarPropriedade(objeto, nomes);
+
+        if (valor.ValueKind == JsonValueKind.String)
+            return valor.GetString() ?? "Não informado";
+
+        if (valor.ValueKind == JsonValueKind.Array)
+        {
+            return string.Join(", ",
+                valor.EnumerateArray()
+                    .Select(x => x.ToString()));
+        }
+
+        if (valor.ValueKind == JsonValueKind.Object)
+        {
+            return string.Join(", ",
+                valor.EnumerateObject()
+                    .Select(x => x.Value.ToString()));
+        }
+
+        return "Não informado";
+    }
+}
